@@ -134,4 +134,27 @@ public abstract class DB
 	 * @return The result of the operation.
 	 */
 	public abstract Status delete(String table, String key);
+
+/**
+ * Starts a new transaction. All operations performed until abortTransaction() or commitTransaction() are called
+ * belong to the same transaction.
+ */
+    public Status startTransaction() {
+        return Status.NOT_IMPLEMENTED;
+    }
+
+    /**
+     * Commits the current transaction.
+     */
+    public Status commitTransaction() {
+        return Status.NOT_IMPLEMENTED;
+    }
+
+    /**
+     * Aborts the current transaction.
+     */
+    public Status abortTransaction() {
+        return Status.NOT_IMPLEMENTED;
+    }
+
 }

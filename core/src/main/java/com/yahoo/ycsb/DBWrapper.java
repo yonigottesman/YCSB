@@ -264,4 +264,45 @@ public class DBWrapper extends DB
       return res;
     }
   }
+
+
+	/**
+     * Starts a new transaction. All operations performed until abortTransaction() or commitTransaction() are called
+     * belong to the same transaction.
+     */
+    public Status startTransaction() {
+        long st = System.nanoTime();
+        Status res = _db.startTransaction();
+        long en = System.nanoTime();
+        _measurements.measure("START", (int) ((en - st) / 1000));
+        _measurements.reportStatus("START", res);
+        return res;
+    }
+
+    /**
+     * Commits the current transaction.
+     */
+    public Status commitTransaction() {
+        long st = System.nanoTime();
+        Status res = _db.commitTransaction();
+        long en = System.nanoTime();
+        _measurements.measure("COMMIT", (int) ((en - st) / 1000));
+        _measurements.reportStatus("COMMIT", res);
+        return res;
+    }
+
+    /**
+     * Aborts the current transaction.
+     */
+    public Status abortTransaction() {
+        long st = System.nanoTime();
+        Status res = _db.abortTransaction();
+        long en = System.nanoTime();
+        _measurements.measure("ABORT", (int) ((en - st) / 1000));
+        _measurements.reportStatus("ABORT", res);
+        return res;
+    }
+
+
+
 }
