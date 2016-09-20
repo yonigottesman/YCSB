@@ -189,6 +189,11 @@ LICENSE file.
       <artifactId>omid-binding</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>com.yahoo.ycsb</groupId>
+      <artifactId>omidLL-binding</artifactId>
+      <version>${project.version}</version>
+    </dependency>
 <!--
     <dependency>
       <groupId>com.yahoo.ycsb</groupId>

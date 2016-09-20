@@ -86,7 +86,8 @@ DATABASES = {
     "solr"         : "com.yahoo.ycsb.db.SolrClient",
     "tarantool"    : "com.yahoo.ycsb.db.TarantoolClient",
     "voldemort"    : "com.yahoo.ycsb.db.VoldemortClient",
-    "omid"    : "com.yahoo.ycsb.db.OmidClient"
+    "omid"    : "com.yahoo.ycsb.db.OmidClient",
+    "omidLL"    : "com.yahoo.ycsb.db.OmidLLClient"
 }
 
 OPTIONS = {

@@ -1,5 +1,6 @@
 package com.yahoo.ycsb.workloads;
 
+import com.yahoo.ycsb.Client;
 import com.yahoo.ycsb.DB;
 import com.yahoo.ycsb.Status;
 import com.yahoo.ycsb.WorkloadException;
@@ -98,14 +99,14 @@ public class TransactionalWorkload extends CoreWorkload {
   @Override
   public boolean doInsert(DB db, Object threadstate) {
     LOG.info("doInsert {}", Thread.currentThread().getId());
-
+    boolean res = true;
     if (db.startTransaction() != Status.OK) // in case getting the timestamp fails - don't do the transaction
       return false;
 
-    if (super.doInsert(db,threadstate) == false)
-      return false;
+    for (int i = 0; i < Client._insertBatchSize && res == true; i++)
+      res = super.doInsert(db,threadstate);
 
-    if (db.commitTransaction() == Status.OK)
+    if (db.commitTransaction() == Status.OK && res == true)
       return true;
     else
       return false;

@@ -44,6 +44,8 @@ import com.yahoo.ycsb.measurements.Measurements;
 import com.yahoo.ycsb.measurements.exporter.MeasurementsExporter;
 import com.yahoo.ycsb.measurements.exporter.TextMeasurementsExporter;
 
+import static java.lang.Thread.sleep;
+
 /**
  * A thread to periodically show the status of the experiment, to reassure you that progress is being made.
  *
@@ -78,6 +80,7 @@ class StatusThread extends Thread
   private double _minLoadAvg = Double.MAX_VALUE;
   private long lastGCCount = 0;
   private long lastGCTime = 0;
+
 
   /**
    * Creates a new StatusThread without JVM stat tracking.
@@ -441,11 +444,19 @@ class ClientThread implements Runnable
     //spread the thread operations out so they don't all hit the DB at the same time
     // GH issue 4 - throws exception if _target>1 because random.nextInt argument must be >0
     // and the sleep() doesn't make sense for granularities < 1 ms anyway
-    if ((_targetOpsPerMs > 0) && (_targetOpsPerMs <= 1.0))
-    {
+    if ((_targetOpsPerMs > 0) && (_targetOpsPerMs <= 1.0)) {
       long randomMinorDelay = Utils.random().nextInt((int) _targetOpsTickNs);
       sleepUntil(System.nanoTime() + randomMinorDelay);
     }
+
+    try {
+      //spread the threads some more.
+      long tid = Thread.currentThread().getId();
+      Thread.sleep(tid*100);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+
     try
     {
       if (_dotransactions)
@@ -477,7 +488,7 @@ class ClientThread implements Runnable
             break;
           }
 
-          _opsdone++;
+          _opsdone+=Client._insertBatchSize;
 
           throttleNanos(startTimeNanos);
         }
@@ -617,6 +628,9 @@ public class Client
   private static final String CLIENT_WORKLOAD_SPAN = "Client#workload";
   private static final String CLIENT_CLEANUP_SPAN = "Client#cleanup";
   private static final String CLIENT_EXPORT_MEASUREMENTS_SPAN = "Client#export_measurements";
+
+  /** Support bach insert*/
+  public static final int _insertBatchSize = 10;
 
   public static void usageMessage()
   {
@@ -1181,7 +1195,11 @@ public class Client
       e.printStackTrace();
       System.exit(-1);
     }
-
+    try {
+      Thread.sleep(5000);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
     System.exit(0);
   }
 }

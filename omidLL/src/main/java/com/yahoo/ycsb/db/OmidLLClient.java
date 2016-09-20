@@ -22,9 +22,9 @@ import java.util.*;
  *
  * See {@code omid/README.md} for details.
  */
-public class OmidClient extends DB {
+public class OmidLLClient extends DB {
 
-  private static final Logger LOG = LoggerFactory.getLogger(OmidClient.class);
+  private static final Logger LOG = LoggerFactory.getLogger(OmidLLClient.class);
   private TransactionManager transactionManager;
   private Transaction transactionState = null;
 
@@ -53,7 +53,9 @@ public class OmidClient extends DB {
     }
 
     try {
-      transactionManager = HBaseTransactionManager.newInstance();
+      HBaseOmidClientConfiguration omidClientConfiguration = new HBaseOmidClientConfiguration();
+      //omidClientConfiguration.setPostCommitMode(OmidClientConfiguration.PostCommitMode.ASYNC);
+      transactionManager = HBaseTransactionManager.newInstance(omidClientConfiguration);
     } catch (Exception e) {
       throw new DBException(e);
     }
@@ -143,7 +145,7 @@ public class OmidClient extends DB {
 
     Put put = new Put(Bytes.toBytes(key));
     for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-      LOG.info("Adding {}:{}", (key), entry.getKey());
+      //LOG.info("Adding {}:{}", (key), entry.getKey());
       put.add(columnFamily, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
     }
 
@@ -226,7 +228,7 @@ public class OmidClient extends DB {
 
     try {
       transactionManager.commit(transactionState);
-      //      LOG.info("Transaction {} ended TRUE", transactionState);
+      LOG.info("Transaction {} ended TRUE", transactionState.getTransactionId());
     } catch (TransactionException e) {
       System.err.println("commit transaction failed" + e.getMessage());
       return Status.SERVICE_UNAVAILABLE;
@@ -255,7 +257,7 @@ public class OmidClient extends DB {
     LOG.info("abortTransactions");
     return Status.OK;
   }
-  
+
   @Override
   public void cleanup() {
     //Dont clode TM ot talbe so that ASYNC thread can continue working

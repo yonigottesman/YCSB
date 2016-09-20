@@ -135,6 +135,7 @@ LICENSE file.
     <module>solr</module>
     <module>tarantool</module>
     <module>omid</module>
+    <module>omidLL</module>
     <!--<module>voldemort</module>-->
   </modules>
 
