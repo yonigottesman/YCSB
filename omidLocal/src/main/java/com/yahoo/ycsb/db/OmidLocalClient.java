@@ -9,6 +9,7 @@ import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.log4j.Level;
 import org.apache.omid.transaction.*;
+import org.apache.omid.tso.client.AbortException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,19 +22,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * See {@code omid/README.md} for details.
  */
-public class OmidLLClient extends DB {
+public class OmidLocalClient extends DB {
 
-  private static final Logger LOG = LoggerFactory.getLogger(OmidLLClient.class);
+  private static final Logger LOG = LoggerFactory.getLogger(OmidLocalClient.class);
   private TransactionManager transactionManager;
   private Transaction transactionState = null;
 
-  private TTable lastHTable = null;
+  //private TTable lastHTable = null;
+  private STable lastSTable = null;
   private byte[] columnFamily = null;
 
   private final Configuration hBaseConfig = HBaseConfiguration.create();
 
   private static HConnection hConn = null;
   private static final AtomicInteger THREAD_COUNT = new AtomicInteger(0);
+
 
   private final Object tableLock = new Object();
   public static final String BUFFER_WRITE_PROPERTY = "bufferwrites";
@@ -43,16 +46,12 @@ public class OmidLLClient extends DB {
   private int txSize;
 
   public void init() throws DBException {
-
     if ((getProperties().getProperty("debug") != null) &&
         (getProperties().getProperty("debug").compareTo("true") == 0)) {
       org.apache.log4j.Logger.getRootLogger().setLevel(Level.INFO);
     } else {
       org.apache.log4j.Logger.getRootLogger().setLevel(Level.OFF);
     }
-
-    bufferWrites= Boolean.parseBoolean(getProperties().getProperty(BUFFER_WRITE_PROPERTY, BUFFER_WRITE_DEFAULT));
-
     //TODO change to support multiple columnfamily
     columnFamily = Bytes.toBytes(getProperties().getProperty("columnfamily"));
     if (columnFamily == null) {
@@ -103,7 +102,7 @@ public class OmidLLClient extends DB {
   public Status read(String table, String key, Set<String> fields, HashMap<String, ByteIterator> result) {
     txSize++;
     LOG.info("Doing read from HBase {}:{}", Bytes.toString(columnFamily), key);
-    if (lastHTable == null || !(Bytes.toString(lastHTable.getTableName()).equals(table))) {
+    if (lastSTable == null || !(Bytes.toString(lastSTable.getTableName()).equals(table))) {
       try {
         getHTable(table);
       } catch (IOException e) {
@@ -126,9 +125,13 @@ public class OmidLLClient extends DB {
 
     try {
       if (transactionState == null) {
-        System.err.println("Error reading outside of transaction, is this ok?");
+        LOG.info("Singlton read");
+        long commitst = System.nanoTime();
+        res = lastSTable.singletonGet(get);
+        long commiten = System.nanoTime();
+        Measurements.getMeasurements().measure(new String("SINGLETON READ"), (int) ((commiten - commitst) / 1000));
       } else {
-        res = lastHTable.get(transactionState, get);
+        res = lastSTable.get(transactionState, get);
       }
     } catch (IOException e) {
       System.err.println("Error doing get: " + e);
@@ -137,8 +140,8 @@ public class OmidLLClient extends DB {
 
     if (!res.isEmpty()) {
       for (Cell cell : res.listCells()) {
-        result.put(cell.getQualifierArray().toString(), new ByteArrayByteIterator(cell.getValueArray()));
-        //LOG.info("Result for field {} ", Bytes.toString(cell.getQualifierArray()));
+        result.put(Bytes.toString(cell.getQualifierArray(), cell.getQualifierOffset(), cell.getQualifierLength()),
+            new ByteArrayByteIterator(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength()));
       }
     }
 
@@ -152,10 +155,14 @@ public class OmidLLClient extends DB {
   }
 
   public Status update(String table, String key, HashMap<String, ByteIterator> values) {
-    txSize++;
-    LOG.info("Doing update to DB");
 
-    if (lastHTable == null || !(Bytes.toString(lastHTable.getTableName()).equals(table))) {
+
+
+    txSize++;
+    Boolean isWc = false;
+    long bts = 0;
+
+    if (lastSTable == null || !(Bytes.toString(lastSTable.getTableName()).equals(table))) {
       try {
         getHTable(table);
       } catch (IOException e) {
@@ -166,24 +173,45 @@ public class OmidLLClient extends DB {
 
     Put put = new Put(Bytes.toBytes(key));
     for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-      //LOG.info("Adding {}:{}", (key), entry.getKey());
-      put.add(columnFamily, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
+      if (entry.getKey().equals("COUNTER_VALUE")) {
+        isWc = true;
+        bts = Bytes.toLong(entry.getValue().toArray());
+      } else {
+        put.add(columnFamily, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
+
+      }
     }
 
+    //System.out.format("update %s %d\n", key, bts);
     try {
+
       if (transactionState == null) {
-        System.err.println("Error writing outside of transaction, is this ok?");
-        return Status.SERVICE_UNAVAILABLE;
+        //This is a singleton transaction
+        LOG.info("Singlton write");
+
+        long commitst = System.nanoTime();
+        if (isWc) {
+          lastSTable.singletonPutCommit(put, bts);
+        } else {
+          lastSTable.singletonPut(put);
+        }
+
+        long commiten = System.nanoTime();
+        Measurements.getMeasurements().measure(new String("SINGLETON UPDATE"), (int) ((commiten - commitst) / 1000));
       } else {
         long commitst = System.nanoTime();
-        lastHTable.put(transactionState, put);
+        lastSTable.put(transactionState, put);
         long commiten = System.nanoTime();
-        Measurements.getMeasurements().measure(new String("LL UPDATE"), (int) ((commiten - commitst) / 1000));
+        Measurements.getMeasurements().measure(new String("RMW UPDATE"), (int) ((commiten - commitst) / 1000));
       }
+
     } catch (IOException e) {
 
       System.err.println("Error doing get: " + e);
       return Status.SERVICE_UNAVAILABLE;
+    } catch (AbortException e) {
+      //singleton abort
+      return Status.BAD_REQUEST;
     }
 
     return Status.OK;
@@ -196,7 +224,7 @@ public class OmidLLClient extends DB {
   public Status delete(String table, String key) {
     LOG.info("delete");
 
-    if (lastHTable == null || !(Bytes.toString(lastHTable.getTableName()).equals(table))) {
+    if (lastSTable == null || !(Bytes.toString(lastSTable.getTableName()).equals(table))) {
       try {
         getHTable(table);
       } catch (IOException e) {
@@ -211,7 +239,7 @@ public class OmidLLClient extends DB {
         System.err.println("Error deleting outside of transaction");
         return Status.SERVICE_UNAVAILABLE;
       } else {
-        lastHTable.delete(transactionState, delete);
+        lastSTable.delete(transactionState, delete);
       }
     } catch (IOException e) {
       System.err.println("Error doing delete: " + e);
@@ -228,9 +256,9 @@ public class OmidLLClient extends DB {
    */
   @Override
   public Status startTransaction() {
-    txSize=0;
-    LOG.info("startTransactions");
 
+    LOG.info("startTransactions");
+    txSize=0;
     try {
       transactionState = transactionManager.begin();
       LOG.info("Transaction {} started", transactionState);
@@ -298,17 +326,18 @@ public class OmidLLClient extends DB {
   public void cleanup() {
     //Dont clode TM ot talbe so that ASYNC thread can continue working
     //transactionManager.close();
-    //lastHTable.close();
+    //
   }
+
 
   private void getHTable(String table) throws IOException {
     //TODO why is this syncronized?! what happends if multiple threads change _htable and use
     synchronized (tableLock) {
-      //lastHTable = new TTable(hBaseConfig, table);
-      lastHTable = new TTable(hConn.getTable(table));
+      //lastSTable = new STable(hBaseConfig, table);
+      lastSTable = new STable(hConn.getTable(table));
       if (bufferWrites) {
-        lastHTable.setWriteBufferSize(1024 * 1024 * 12);
-        lastHTable.setAutoFlush(false);
+        lastSTable.setWriteBufferSize(1024 * 1024 * 12);
+        lastSTable.setAutoFlush(false);
       }
     }
   }

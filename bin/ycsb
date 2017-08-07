@@ -87,7 +87,8 @@ DATABASES = {
     "tarantool"    : "com.yahoo.ycsb.db.TarantoolClient",
     "voldemort"    : "com.yahoo.ycsb.db.VoldemortClient",
     "omid"    : "com.yahoo.ycsb.db.OmidClient",
-    "omidLL"    : "com.yahoo.ycsb.db.OmidLLClient"
+    "omidLL"    : "com.yahoo.ycsb.db.OmidLLClient",
+    "omidLocal"    : "com.yahoo.ycsb.db.OmidLocalClient"
 }
 
 OPTIONS = {

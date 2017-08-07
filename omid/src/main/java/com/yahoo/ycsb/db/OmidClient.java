@@ -1,13 +1,11 @@
 package com.yahoo.ycsb.db;
 
 import com.yahoo.ycsb.*;
+import com.yahoo.ycsb.measurements.Measurements;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.log4j.Level;
 import org.apache.omid.transaction.*;
@@ -16,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * YCSB binding for omid.
@@ -33,9 +32,15 @@ public class OmidClient extends DB {
 
   private final Configuration hBaseConfig = HBaseConfiguration.create();
 
+  private static HConnection hConn = null;
+  private static final AtomicInteger THREAD_COUNT = new AtomicInteger(0);
+
+  public static final String BUFFER_WRITE_PROPERTY = "bufferwrites";
+  public static final String BUFFER_WRITE_DEFAULT = "false";
+  private Boolean bufferWrites = false;
 
   private final Object tableLock = new Object();
-
+  private int txSize;
 
   public void init() throws DBException {
 
@@ -45,6 +50,9 @@ public class OmidClient extends DB {
     } else {
       org.apache.log4j.Logger.getRootLogger().setLevel(Level.OFF);
     }
+
+    bufferWrites= Boolean.parseBoolean(getProperties().getProperty(BUFFER_WRITE_PROPERTY, BUFFER_WRITE_DEFAULT));
+
     //TODO change to support multiple columnfamily
     columnFamily = Bytes.toBytes(getProperties().getProperty("columnfamily"));
     if (columnFamily == null) {
@@ -53,11 +61,26 @@ public class OmidClient extends DB {
     }
 
     try {
-      transactionManager = HBaseTransactionManager.newInstance();
+      HBaseOmidClientConfiguration omidClientConfiguration = new HBaseOmidClientConfiguration();
+      //omidClientConfiguration.setPostCommitMode(OmidClientConfiguration.PostCommitMode.ASYNC);
+      transactionManager = HBaseTransactionManager.newInstance(omidClientConfiguration);
     } catch (Exception e) {
       throw new DBException(e);
     }
 
+    try {
+      THREAD_COUNT.getAndIncrement();
+      synchronized(THREAD_COUNT) {
+        if (hConn == null){
+          hConn = HConnectionManager.createConnection(hBaseConfig);
+        }
+      }
+    } catch (IOException e) {
+      System.err.println("Connection to HBase was not successful");
+      throw new DBException(e);
+    }
+
+    bufferWrites= Boolean.parseBoolean(getProperties().getProperty(BUFFER_WRITE_PROPERTY, BUFFER_WRITE_DEFAULT));
 
     Properties props = getProperties();
     LOG.info("OmidClient:init\n");
@@ -78,10 +101,9 @@ public class OmidClient extends DB {
    * @return Zero on success, a non-zero error code on error
    */
   public Status read(String table, String key, Set<String> fields, HashMap<String, ByteIterator> result) {
-
-    LOG.info("Doing read from HBase {}:{}", Bytes.toString(columnFamily), key);
-
-    if (lastHTable == null || Bytes.toString(lastHTable.getTableName()) != table) {
+    txSize++;
+    //LOG.info("Doing read from HBase {}:{}", Bytes.toString(columnFamily), key);
+    if (lastHTable == null || !(Bytes.toString(lastHTable.getTableName()).equals(table))) {
       try {
         getHTable(table);
       } catch (IOException e) {
@@ -124,15 +146,16 @@ public class OmidClient extends DB {
   }
 
   public Status scan(String s, String s1, int i, Set<String> set, Vector<HashMap<String, ByteIterator>> vector) {
-    LOG.info("scan");
+    //LOG.info("scan");
     return Status.NOT_IMPLEMENTED;
 
   }
 
   public Status update(String table, String key, HashMap<String, ByteIterator> values) {
+    txSize++;
+    //LOG.info("Doing update to DB");
 
-    LOG.info("Doing update to DB");
-    if (lastHTable == null || Bytes.toString(lastHTable.getTableName()) != table) {
+    if (lastHTable == null || !(Bytes.toString(lastHTable.getTableName()).equals(table))) {
       try {
         getHTable(table);
       } catch (IOException e) {
@@ -143,7 +166,6 @@ public class OmidClient extends DB {
 
     Put put = new Put(Bytes.toBytes(key));
     for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
-      LOG.info("Adding {}:{}", (key), entry.getKey());
       put.add(columnFamily, Bytes.toBytes(entry.getKey()), entry.getValue().toArray());
     }
 
@@ -168,9 +190,9 @@ public class OmidClient extends DB {
   }
 
   public Status delete(String table, String key) {
-    LOG.info("delete");
+    //LOG.info("delete");
 
-    if (lastHTable == null || Bytes.toString(lastHTable.getTableName()) != table) {
+    if (lastHTable == null || !(Bytes.toString(lastHTable.getTableName()).equals(table))) {
       try {
         getHTable(table);
       } catch (IOException e) {
@@ -202,12 +224,12 @@ public class OmidClient extends DB {
    */
   @Override
   public Status startTransaction() {
-
-    LOG.info("startTransactions");
+    txSize=0;
+    //LOG.info("startTransactions");
 
     try {
       transactionState = transactionManager.begin();
-      LOG.info("Transaction {} started", transactionState);
+      //LOG.info("Transaction {} started", transactionState);
     } catch (TransactionException e) {
       System.err.println("begin transaction failed" + e.getMessage() + e.getCause().getMessage());
       return Status.SERVICE_UNAVAILABLE;
@@ -222,11 +244,25 @@ public class OmidClient extends DB {
   @Override
   public Status commitTransaction() {
 
-    LOG.info("commitTransaction");
+    //LOG.info("commitTransaction");
 
     try {
+
+      long commitst = System.nanoTime();
       transactionManager.commit(transactionState);
-      //      LOG.info("Transaction {} ended TRUE", transactionState);
+      long commiten = System.nanoTime();
+
+      if (transactionState.getStatus() == Transaction.Status.COMMITTED_RO) {
+        Measurements.getMeasurements().measure(new String("COMMIT_RO"), (int) ((commiten - commitst) / 1000));
+        Measurements.getMeasurements().measure(new String("COMMIT SIZE_RO " + Integer.toString(txSize)),
+            (int) ((commiten - commitst) / 1000));
+      } else {
+        Measurements.getMeasurements().measure(new String("COMMIT SIZE_RW " + Integer.toString(txSize)),
+            (int) ((commiten - commitst) / 1000));
+        Measurements.getMeasurements().measure(new String("COMMIT_RW"), (int) ((commiten - commitst) / 1000));
+      }
+
+      //LOG.info("Transaction {} ended TRUE", transactionState.getTransactionId());
     } catch (TransactionException e) {
       System.err.println("commit transaction failed" + e.getMessage());
       return Status.SERVICE_UNAVAILABLE;
@@ -266,7 +302,13 @@ public class OmidClient extends DB {
   private void getHTable(String table) throws IOException {
     //TODO why is this syncronized?! what happends if multiple threads change _htable and use
     synchronized (tableLock) {
-      lastHTable = new TTable(hBaseConfig, table);
+      //lastHTable = new TTable(hBaseConfig, table);
+      lastHTable = new TTable(hConn.getTable(table));
+      if (bufferWrites) {
+        lastHTable.setWriteBufferSize(1024 * 1024 * 12);
+        lastHTable.setAutoFlush(false);
+      }
+
     }
   }
 

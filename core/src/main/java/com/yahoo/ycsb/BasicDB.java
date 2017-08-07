@@ -17,6 +17,9 @@
 
 package com.yahoo.ycsb;
 
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -144,7 +147,10 @@ public class BasicDB extends DB
 
 		return Status.OK;
 	}
-	
+
+
+
+
 	/**
 	 * Perform a range scan for a set of records in the database. Each field/value pair from the result will be stored in a HashMap.
 	 *
@@ -182,6 +188,8 @@ public class BasicDB extends DB
 		return Status.OK;
 	}
 
+  private HashMap<String, Integer> hist = new HashMap<String, Integer>();
+
 	/**
 	 * Update a record in the database. Any field/value pairs in the specified values HashMap will be written into the record with the specified
 	 * record key, overwriting any existing values with the same field name.
@@ -194,6 +202,19 @@ public class BasicDB extends DB
 	public Status update(String table, String key, HashMap<String,ByteIterator> values)
 	{
 		delay();
+
+    Map.Entry<String, ByteIterator> tmpentry=values.entrySet().iterator().next();
+    String field= tmpentry.getKey();
+    ByteIterator value=tmpentry.getValue();
+
+    String omidKey = key+ field;
+
+    Integer f = hist.get(omidKey);
+    if (f == null) {
+      hist.put(omidKey, 1);
+    } else {
+      hist.put(omidKey, f + 1);
+    }
 
 		if (verbose)
 		{
@@ -212,6 +233,32 @@ public class BasicDB extends DB
 
 		return Status.OK;
 	}
+
+	@Override
+  public void cleanup() throws DBException {
+
+    List<Integer> values = new ArrayList(hist.values());
+    Collections.sort(values);
+
+    for (Integer val : values) {
+      System.out.println(val);
+    }
+
+
+    PrintWriter out = null;
+    try {
+      out = new PrintWriter("/tmp/ycsbHist.txt");
+    } catch (FileNotFoundException e) {
+      e.printStackTrace();
+    }
+    for (Map.Entry<String, Integer> entry : hist.entrySet()) {
+      String key = entry.getKey();
+      Integer value = entry.getValue();
+      out.println(key +  "," + value);
+    }
+    out.close();
+  }
+
 
 	/**
 	 * Insert a record in the database. Any field/value pairs in the specified values HashMap will be written into the record with the specified

@@ -106,7 +106,7 @@ public class CoreWorkload extends Workload {
 
   int fieldcount;
 
-  private List<String> fieldnames;
+  public List<String> fieldnames;
 
   /**
    * The name of the property for the field length distribution. Options are "uniform", "zipfian"
@@ -192,7 +192,7 @@ public class CoreWorkload extends Workload {
    * Set to true if want to check correctness of reads. Must also
    * be set to true during loading phase to function.
    */
-  private boolean dataintegrity;
+  public boolean dataintegrity;
 
   /**
    * The name of the property for the proportion of transactions that are reads.
@@ -350,7 +350,7 @@ public class CoreWorkload extends Workload {
   int insertionRetryLimit;
   int insertionRetryInterval;
 
-  private Measurements _measurements = Measurements.getMeasurements();
+  public Measurements _measurements = Measurements.getMeasurements();
 
   protected static NumberGenerator getFieldLengthGenerator(Properties p) throws WorkloadException {
     NumberGenerator fieldlengthgenerator;
@@ -475,6 +475,7 @@ public class CoreWorkload extends Workload {
       int expectednewkeys = (int) ((opcount) * insertproportion * 2.0); // 2 is fudge factor
 
       keychooser = new ScrambledZipfianGenerator(insertstart, insertstart + insertcount + expectednewkeys);
+      keychooser = new ZipfianGenerator(insertstart, insertstart + insertcount + expectednewkeys,0.8);
     } else if (requestdistrib.compareTo("latest") == 0) {
       keychooser = new SkewedLatestGenerator(transactioninsertkeysequence);
     } else if (requestdistrib.equals("hotspot")) {
@@ -521,7 +522,7 @@ public class CoreWorkload extends Workload {
   /**
    * Builds a value for a randomly chosen field.
    */
-  private HashMap<String, ByteIterator> buildSingleValue(String key) {
+  public HashMap<String, ByteIterator> buildSingleValue(String key) {
     HashMap<String, ByteIterator> value = new HashMap<String, ByteIterator>();
 
     String fieldkey = fieldnames.get(fieldchooser.nextValue().intValue());
@@ -540,7 +541,7 @@ public class CoreWorkload extends Workload {
   /**
    * Builds values for all fields.
    */
-  private HashMap<String, ByteIterator> buildValues(String key) {
+  public HashMap<String, ByteIterator> buildValues(String key) {
     HashMap<String, ByteIterator> values = new HashMap<String, ByteIterator>();
 
     for (String fieldkey : fieldnames) {
