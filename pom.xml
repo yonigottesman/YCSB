@@ -163,6 +163,7 @@ LICENSE file.
     <module>solr6</module>
     <module>tarantool</module>
     <module>oak</module>
+    <module>javaskiplist</module>
     <!--<module>voldemort</module>-->
   </modules>
 
