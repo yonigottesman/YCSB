@@ -66,7 +66,7 @@ public class SkipListClient extends DB{
 
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
-    skipList.put(key, values.keySet().iterator().next());
+    skipList.put(key, values.values().iterator().next().toString());
     return Status.OK;
   }
 

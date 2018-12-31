@@ -51,6 +51,7 @@ public class OakClient extends DB{
         .setKeySerializer(new StringSerializer())
         .setValueSerializer(new StringSerializer())
         .setComparator(new StringComparator())
+        .setChunkBytesPerItem(64)
         .setMinKey("");
 
 
@@ -78,7 +79,7 @@ public class OakClient extends DB{
 
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
-    oakMap.put(key, values.keySet().iterator().next());
+    oakMap.put(key, values.values().iterator().next().toString());
     return Status.OK;
   }
 
